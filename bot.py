@@ -1,147 +1,137 @@
-import asyncio
 import os
-
-# Python Version မြင့်ရင် တက်တတ်တဲ့ စက်ဝိုင်း Error ကို ပြင်ဆင်ခြင်း
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
-
 import re
-import json
+import asyncio
 import aiohttp
-# ... ကျန်တဲ့ ကူးထားတဲ့ စာကြောင်းတွေ ဒီအတိုင်း ဆက်ထားပါ ...
-
-from aiohttp import web
 from PIL import Image, ImageDraw
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from pyrogram.errors import FloodWait
 
-# ================= ⚙️ အခြေခံ အချက်အလက်များ =================
-import os
+# ================= Config =================
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-API_ID = int(os.getenv("API_ID", "0"))
-API_HASH = os.getenv("API_HASH", "")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-ADMIN_ID = os.getenv("ADMIN_ID", "waiyanphyo99")
-MY_LOGO_FILE = "1000044099.png"
+ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split() if x]
 
-# ================= 🗂 Database (JSON) စနစ် =================
-DB_FILE = "channels.json"
+# ================= Channels =================
+SOURCES = [
+    "Worldmovie2001", "paradisechannel2000", "suzukimovies1", "kcinemammsub", 
+    "Channel_Myanmar_MMsub1", "SsMovieMyanmar", "ThidaWanorn", "MYO_ZAW_HTAY_Link", 
+    "moonmmsub", "movieactionzone01", "kksmoviechannel", "CHANNELXMOVIE", 
+    "channelhpmm", "theeastpalace1", "famillymovie1", "love_movie67", "ChoutChar"
+]
 
-def load_db():
-    if not os.path.exists(DB_FILE):
-        default_data = {"sources": [], "targets": []}
-        save_db(default_data)
-        return default_data
-    with open(DB_FILE, "r") as f:
-        return json.load(f)
-
-def save_db(data):
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=4)
-
-# Dynamic Source Filter
-async def is_source(_, __, message):
-    if not message.chat or not message.chat.username: return False
-    db = load_db()
-    return message.chat.username in [s.replace("@", "") for s in db["sources"]]
-
-source_filter = filters.create(is_source)
-
-# =========================================================================
-
-app = Client("advanced_movie_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+TARGETS = [
+    "@allmovie00099", "@chatCGAi", "@channelningo", "@channelhingo", 
+    "@channelaingo", "@channeldogo", "@onepiecemmk", "@chanpingo", "@Cartoonmovie2002"
+]
 
 current_target_index = 0
 last_media_group_id = None
 
-# (၁) 🖼 Logo ပြောင်းမည့်စနစ်
-def replace_logo(photo_path, logo_path, output_path):
+# ================= Logo (Bottom Right) =================
+def replace_logo(photo_path: str, output_path: str):
     try:
-        main_img = Image.open(photo_path).convert("RGBA")
-        width, height = main_img.size
-        draw = ImageDraw.Draw(main_img)
-        box_w = int(width * 0.25)
-        box_h = int(height * 0.1)
-        x1, y1 = width - box_w - 15, 15
-        x2, y2 = width - 15, y1 + box_h
-        draw.rectangle([x1, y1, x2, y2], fill=(15, 15, 15, 255))
-        
-        if os.path.exists(logo_path):
-            logo = Image.open(logo_path).convert("RGBA")
-            logo.thumbnail((box_w - 10, box_h - 10))
-            paste_x, paste_y = x1 + (box_w - logo.width) // 2, y1 + (box_h - logo.height) // 2
-            main_img.paste(logo, (paste_x, paste_y), logo)
-            
-        final_img = main_img.convert("RGB")
-        final_img.save(output_path)
+        main = Image.open(photo_path).convert("RGBA")
+        w, h = main.size
+        logo_w = int(w * 0.35)
+        logo_h = int(h * 0.18)
+        x = w - logo_w - 30
+        y = h - logo_h - 30
+
+        draw = ImageDraw.Draw(main)
+        draw.rectangle([x, y, x + logo_w, y + logo_h], fill=(0, 0, 0, 210))
+
+        if os.path.exists("logo.png"):
+            logo = Image.open("logo.png").convert("RGBA")
+            logo.thumbnail((logo_w - 20, logo_h - 20))
+            paste_x = x + (logo_w - logo.width) // 2
+            paste_y = y + (logo_h - logo.height) // 2
+            main.paste(logo, (paste_x, paste_y), logo)
+
+        main.convert("RGB").save(output_path, quality=95)
         return True
     except Exception as e:
-        print(f"Logo Error: {e}")
+        print("Logo Error:", e)
         return False
 
-# (၂) 🤖 AI ဇာတ်လမ်းအကျဉ်း
-async def generate_ai_summary(text):
-    if not text: return ""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-    prompt = (
-        f"Analyze this movie description: '{text}'.\n"
-        "Write a short, engaging movie summary in Myanmar (Burmese) language. "
-        "Remove all promotional links, ads, and other channel usernames. "
-        "Keep it concise and output ONLY the summary text."
-    )
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    return data['candidates'][0]['content']['parts'][0]['text'].strip()
-    except: pass
-    clean_text = re.sub(r'http[s]?://\S+', '', text)
-    return re.sub(r'@\S+', '', clean_text).strip()
+# ================= AI Summary =================
+async def generate_ai_summary(text: str) -> str:
+    if not text:
+        return "🎬 New Movie"
 
-# (၃) 🎛 ခလုတ်များ
+    link = re.search(r"https?://t\.me/\S+", text)
+    link = link.group(0) if link else ""
+
+    title = re.search(r"🎬\s*(.+)", text)
+    title = title.group(1).strip() if title else "New Movie"
+
+    prompt = f"အောက်ပါ ရုပ်ရှင်ကို မြန်မာလို ဆွဲဆောင်မှုရှိတဲ့ ဇာတ်လမ်းအကျဉ်း (၃ ကြောင်း) ရေးပေးပါ။ Title: {title}\n\n{text[:1800]}"
+
+    summary = "စိတ်ဝင်စားဖို့ ကောင်းတဲ့ ရုပ်ရှင်တစ်ကားပါ။"
+    if GEMINI_API_KEY:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=12) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        summary = data['candidates'][0]['content']['parts'][0]['text'].strip()
+        except:
+            pass
+
+    final = f"🎬 **{title}**\n\n📝 **ဇာတ်လမ်းအကျဉ်း**\n{summary}\n\n"
+    if link:
+        final += f"👇 **ကြည့်ရန်**\n{link}"
+    return final
+
 def get_buttons():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📺 Main Channel ကို Join ရန်", url="https://t.me/yourmainchannel")],
-        [InlineKeyboardButton("💬 Group", url="https://t.me/yourgroup"), InlineKeyboardButton("📥 Download", url="https://t.me/yourdownloadlink")]
+        [InlineKeyboardButton("📺 Main Channel", url="https://t.me/yourmainchannel")],
+        [InlineKeyboardButton("💬 Group", url="https://t.me/yourgroup")]
     ])
 
-# ================= 👑 Admin Control Commands =================# အောက်ပါအတိုင်း 
-print(f"DEBUG: API_ID is: {API_ID}")
-print(f"DEBUG: BOT_TOKEN is valid: {bool(BOT_TOKEN)}")
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import os
+def is_source(_, __, message: Message):
+    if not message.chat: return False
+    username = (message.chat.username or "").replace("@", "").lower()
+    return any(s.lower().replace("@", "") == username for s in SOURCES)
 
-# ==========================================
-# Render အား လှည့်စားရန် Web Server အတု ဖန်တီးခြင်း
-# ==========================================
-class DummyHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot is alive and running!")
+source_filter = filters.create(is_source)
 
-def keep_alive():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), DummyHandler)
-    server.serve_forever()
+@app.on_message(filters.private & filters.command("start"))
+async def start_cmd(client, message: Message):
+    await message.reply_text("👋 **မင်္ဂလာပါ!** ရုပ်ရှင်များ အလိုအလျောက် ပို့ပေးနေပါသည်။", reply_markup=get_buttons())
 
-# Web Server အတုကို နောက်ကွယ်မှ စတင် Run ခြင်း
-threading.Thread(target=keep_alive, daemon=True).start()
+@app.on_message(source_filter)
+async def auto_forward(client, message: Message):
+    global current_target_index, last_media_group_id
+    if not TARGETS: return
 
-# ==========================================
-# Bot ကို ပုံမှန်အတိုင်း အလုပ်လုပ်စေခြင်း
-# ==========================================
-print("🚀 Bot is ready and starting...")
-@app.on_message(filters.command("start"))
-async def start_command(client, message):
-    await message.reply_text("မင်္ဂလာပါ! ကျွန်တော်ကတော့ အလိုအလျောက် စာပို့ပေးမယ့် Bot ဖြစ်ပါတယ်။ 🚀\nယခု အောင်မြင်စွာ အလုပ်လုပ်နေပါပြီ။")
+    try:
+        if message.media_group_id:
+            if message.media_group_id == last_media_group_id:
+                return
+            last_media_group_id = message.media_group_id
+        current_target_index = (current_target_index + 1) % len(TARGETS)
+        target = TARGETS[current_target_index]
+
+        new_caption = await generate_ai_summary(message.caption or message.text or "")
+
+        if message.photo:
+            photo_path = await message.download()
+            output_path = f"processed_{message.id}.jpg"
+            if replace_logo(photo_path, output_path):
+                await client.send_photo(target, output_path, caption=new_caption, reply_markup=get_buttons())
+            else:
+                await client.send_photo(target, photo_path, caption=new_caption, reply_markup=get_buttons())
+            for p in [photo_path, output_path]:
+                if os.path.exists(p): os.remove(p)
+        else:
+            await message.copy(target, caption=new_caption, reply_markup=get_buttons())
+    except Exception as e:
+        print(f"Error: {e}")
+
+print("🚀 Movie Auto Forward Bot Started...")
 app.run()
-
-
-
-
