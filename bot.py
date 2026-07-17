@@ -16,7 +16,7 @@ API_HASH = os.getenv("API_HASH", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 ADMIN_ID = os.getenv("ADMIN_ID", "waiyanphyo99")
-MY_LOGO_FILE = "my_logo.png"
+MY_LOGO_FILE = "1000044099.png"
 
 # ================= 🗂 Database (JSON) စနစ် =================
 DB_FILE = "channels.json"
