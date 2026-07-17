@@ -1,0 +1,12 @@
+# connectors_GH_TOKEN
+export GH_TOKEN="ghu_oZh6n7tMXaET2xmYmEYsAd1Q2CGfNT4gacwD"
+
+# connectors_GOOGLE_DRIVE_TOKEN
+export GOOGLE_WORKSPACE_CLI_TOKEN=""
+export GOOGLE_DRIVE_TOKEN=""
+
+# manus extra envs
+# manus extra envs
+export AGENT_TIMEZONE="Asia/Yangon"
+export AGENT_LOCALE="en"
+

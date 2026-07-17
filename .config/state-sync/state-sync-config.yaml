@@ -1,0 +1,5 @@
+browser-port: "9222"
+pull: true
+push: false
+s3-get-url: https://browser-cookie-prod.7f0548f6b28a1758d9bf7be630d36cb4.r2.cloudflarestorage.com/browser_data/310519663174222151/3zSGQ6zSPnhyV6AN8PjzWS.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=6e92475179554fa63137d0a2eaf1889a%2F20260717%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260717T095408Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&x-id=GetObject&X-Amz-Signature=152cee648ee6ddea72f2033698fdc1d4a5a5510a63cc4c3ba3827da236d0ab97
+s3-put-url: ""
