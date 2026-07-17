@@ -113,6 +113,6 @@ def get_buttons():
 print(f"DEBUG: API_ID is: {API_ID}")
 print(f"DEBUG: BOT_TOKEN is valid: {bool(BOT_TOKEN)}")
 
-app.run()
+
 
 
