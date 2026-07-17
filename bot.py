@@ -112,6 +112,32 @@ def get_buttons():
 # ================= 👑 Admin Control Commands =================# အောက်ပါအတိုင်း 
 print(f"DEBUG: API_ID is: {API_ID}")
 print(f"DEBUG: BOT_TOKEN is valid: {bool(BOT_TOKEN)}")
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import os
+
+# ==========================================
+# Render အား လှည့်စားရန် Web Server အတု ဖန်တီးခြင်း
+# ==========================================
+class DummyHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive and running!")
+
+def keep_alive():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), DummyHandler)
+    server.serve_forever()
+
+# Web Server အတုကို နောက်ကွယ်မှ စတင် Run ခြင်း
+threading.Thread(target=keep_alive, daemon=True).start()
+
+# ==========================================
+# Bot ကို ပုံမှန်အတိုင်း အလုပ်လုပ်စေခြင်း
+# ==========================================
+print("🚀 Bot is ready and starting...")
+app.run()
 
 
 
