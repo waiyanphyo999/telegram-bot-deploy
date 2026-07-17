@@ -1,2 +1,6 @@
-.cache/
-.local/share/pnpm/store/
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
