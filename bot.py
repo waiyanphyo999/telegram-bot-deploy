@@ -12,11 +12,6 @@ import json
 import aiohttp
 # ... ကျန်တဲ့ ကူးထားတဲ့ စာကြောင်းတွေ ဒီအတိုင်း ဆက်ထားပါ ...
 
-import os
-import re
-import json
-import asyncio
-import aiohttp
 from aiohttp import web
 from PIL import Image, ImageDraw
 from pyrogram import Client, filters
@@ -114,4 +109,5 @@ def get_buttons():
         [InlineKeyboardButton("💬 Group", url="https://t.me/yourgroup"), InlineKeyboardButton("📥 Download", url="https://t.me/yourdownloadlink")]
     ])
 
-# ================= 👑 Admin Control Commands =================
+# ================= 👑 Admin Control Commands =================app.run()
+
