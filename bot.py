@@ -109,5 +109,10 @@ def get_buttons():
         [InlineKeyboardButton("💬 Group", url="https://t.me/yourgroup"), InlineKeyboardButton("📥 Download", url="https://t.me/yourdownloadlink")]
     ])
 
-# ================= 👑 Admin Control Commands =================app.run()
+# ================= 👑 Admin Control Commands =================# အောက်ပါအတိုင်း 
+print(f"DEBUG: API_ID is: {API_ID}")
+print(f"DEBUG: BOT_TOKEN is valid: {bool(BOT_TOKEN)}")
+
+app.run()
+
 
