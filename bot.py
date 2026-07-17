@@ -137,6 +137,9 @@ threading.Thread(target=keep_alive, daemon=True).start()
 # Bot ကို ပုံမှန်အတိုင်း အလုပ်လုပ်စေခြင်း
 # ==========================================
 print("🚀 Bot is ready and starting...")
+@app.on_message(filters.command("start"))
+async def start_command(client, message):
+    await message.reply_text("မင်္ဂလာပါ! ကျွန်တော်ကတော့ အလိုအလျောက် စာပို့ပေးမယ့် Bot ဖြစ်ပါတယ်။ 🚀\nယခု အောင်မြင်စွာ အလုပ်လုပ်နေပါပြီ။")
 app.run()
 
 
