@@ -9,12 +9,12 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ================= ⚙️ အခြေခံ အချက်အလက်များ =================
-API_ID = int(os.getenv("38481104", ""))
-API_HASH = os.getenv("3c7752a29b4cc0ec9daf6e1782c0b4e2", "")
-BOT_TOKEN = os.getenv("8967281657:AAESW-r4v_OOc-jcJzSi4PL9Figkaftn4_A", "")
-GEMINI_API_KEY = os.getenv("AQ.Ab8RN6K6c43OwyfEfOTBKfQR0Dujz
+API_ID = int(os.getenv("youID", ""))
+API_HASH = os.getenv("youapi", "")
+BOT_TOKEN = os.getenv("youtoken", "")
+GEMINI_API_KEY = 
 
--eZpFt052CtDV0jVzmxfg", "")
+-you API", "")
 
 # 👑 သင့်ရဲ့ Telegram Username (Admin)
 ADMIN_ID = os.getenv("@waiyanphyo99", "")
