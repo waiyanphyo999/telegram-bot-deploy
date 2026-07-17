@@ -1,3 +1,17 @@
+import asyncio
+import os
+
+# Python Version မြင့်ရင် တက်တတ်တဲ့ စက်ဝိုင်း Error ကို ပြင်ဆင်ခြင်း
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
+import re
+import json
+import aiohttp
+# ... ကျန်တဲ့ ကူးထားတဲ့ စာကြောင်းတွေ ဒီအတိုင်း ဆက်ထားပါ ...
+
 import os
 import re
 import json
