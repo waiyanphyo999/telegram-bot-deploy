@@ -1,224 +1,145 @@
-import asyncio
-# Render တွင် Event Loop Error မတက်စေရန် ဖြေရှင်းချက်
-asyncio.set_event_loop(asyncio.new_event_loop())
-
 import os
-import json
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import re
+import asyncio
+import aiohttp
+from PIL import Image, ImageDraw
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from PIL import Image
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from pyrogram.errors import FloodWait
 
-# ==========================================
-# 1. Render အား လှည့်စားရန် Web Server အတု
-# ==========================================
-class DummyHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Movie Bot is alive and running!")
+# ================= Config =================
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-def keep_alive():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), DummyHandler)
-    server.serve_forever()
+ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split() if x]
 
-threading.Thread(target=keep_alive, daemon=True).start()
+# ================= Channels =================
+SOURCES = [
+    "Worldmovie2001", "paradisechannel2000", "suzukimovies1", "kcinemammsub", 
+    "Channel_Myanmar_MMsub1", "SsMovieMyanmar", "ThidaWanorn", "MYO_ZAW_HTAY_Link", 
+    "moonmmsub", "movieactionzone01", "kksmoviechannel", "CHANNELXMOVIE", 
+    "channelhpmm", "theeastpalace1", "famillymovie1", "love_movie67", "ChoutChar"
+]
 
-# ==========================================
-# 2. Configuration & Admin 
-# ==========================================
-API_ID = int(os.environ.get("API_ID", 0))
-API_HASH = os.environ.get("API_HASH", "")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+TARGETS = [
+    "@allmovie00099", "@chatCGAi", "@channelningo", "@channelhingo", 
+    "@channelaingo", "@channeldogo", "@onepiecemmk", "@chanpingo", "@Cartoonmovie2002"
+]
 
-ADMIN_USERNAME = "waiyanphyo99" 
-CHANNELS_FILE = "channels.json"
+current_target_index = 0
+last_media_group_id = None
 
-app = Client("movie_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-admin_filter = filters.user(ADMIN_USERNAME)
-
-# ==========================================
-# 3. Channel များကို သိမ်းဆည်းရန် Helper Functions
-# ==========================================
-def load_channels():
-    if not os.path.exists(CHANNELS_FILE):
-        with open(CHANNELS_FILE, "w") as f:
-            json.dump([], f)
-        return []
+# ================= Logo Replace (Bottom Right) =================
+def replace_logo(photo_path: str, output_path: str):
     try:
-        with open(CHANNELS_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return []
+        main = Image.open(photo_path).convert("RGBA")
+        w, h = main.size
+        logo_w = int(w * 0.35)
+        logo_h = int(h * 0.18)
+        x = w - logo_w - 30
+        y = h - logo_h - 30
 
-def save_channels(channels):
-    with open(CHANNELS_FILE, "w") as f:
-        json.dump(channels, f)
+        draw = ImageDraw.Draw(main)
+        draw.rectangle([x, y, x + logo_w, y + logo_h], fill=(0, 0, 0, 210))
 
-# ==========================================
-# 4. Logo ပေါင်းထည့်သည့် Function (Watermark)
-# ==========================================
-def add_logo(input_image_path, output_image_path, logo_path="logo.png"):
-    try:
-        base_image = Image.open(input_image_path).convert("RGBA")
-        logo = Image.open(logo_path).convert("RGBA")
+        if os.path.exists("logo.png"):
+            logo = Image.open("logo.png").convert("RGBA")
+            logo.thumbnail((logo_w - 20, logo_h - 20))
+            paste_x = x + (logo_w - logo.width) // 2
+            paste_y = y + (logo_h - logo.height) // 2
+            main.paste(logo, (paste_x, paste_y), logo)
 
-        # Logo အရွယ်အစားကို မူရင်းပုံ၏ ၂၅% ခန့်ထားရန် ပြင်ဆင်ခြင်း
-        logo_width = int(base_image.width * 0.25)
-        logo_ratio = logo_width / logo.width
-        logo_height = int(logo.height * logo_ratio)
-        logo = logo.resize((logo_width, logo_height), Image.Resampling.LANCZOS)
-
-        # Logo ထားမည့်နေရာ (ညာဘက် အောက်ထောင့်တွင် သူများ Logo ကို ဖုံးရန်)
-        position = (base_image.width - logo_width - 15, base_image.height - logo_height - 15)
-
-        # မူရင်းပုံပေါ်သို့ Logo ကပ်ခြင်း
-        transparent = Image.new('RGBA', base_image.size, (0,0,0,0))
-        transparent.paste(base_image, (0,0))
-        transparent.paste(logo, position, mask=logo)
-        
-        final_image = transparent.convert("RGB")
-        final_image.save(output_image_path, "JPEG")
+        main.convert("RGB").save(output_path, quality=95)
         return True
     except Exception as e:
-        print(f"Logo ကပ်ရာတွင် အမှားတက်နေသည်: {e}")
+        print("Logo Error:", e)
         return False
 
-# ==========================================
-# 5. Bot ၏ အဓိက လုပ်ဆောင်ချက်များ (Commands)
-# ==========================================
+# ================= Improved AI Summary =================
+async def generate_ai_summary(text: str) -> str:
+    if not text:
+        return "🎬 New Movie"
 
-@app.on_message(filters.command("start") & admin_filter)
-async def start_bot(client, message):
-    text = (
-        "🎬 **Movie Auto-Forward Bot မှ ကြိုဆိုပါသည်!**\n\n"
-        "အောက်ပါ ခလုတ်များကို နှိပ်၍ အသုံးပြုနိုင်ပါသည်။ 👇"
-    )
-    # ခလုတ်များ ဖန်တီးခြင်း
-    keyboard = InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("📋 လက်ရှိ Channel စာရင်း ကြည့်ရန်", callback_data="list_channels")],
-            [
-                InlineKeyboardButton("➕ Channel ထည့်မည်", callback_data="add_help"),
-                InlineKeyboardButton("➖ Channel ဖြုတ်မည်", callback_data="remove_help")
-            ]
-        ]
-    )
-    await message.reply(text, reply_markup=keyboard)
+    link = re.search(r"https?://t\.me/\S+", text)
+    link = link.group(0) if link else ""
 
-@app.on_message(filters.command("add") & admin_filter)
-async def add_channel(client, message):
-    if len(message.command) < 2:
-        return await message.reply("⚠️ ကျေးဇူးပြု၍ Channel Username ထည့်ပါ။\nဥပမာ - `/add @my_movie_channel`")
-    
-    new_channel = message.command[1]
-    channels = load_channels()
-    
-    if new_channel not in channels:
-        channels.append(new_channel)
-        save_channels(channels)
-        await message.reply(f"✅ {new_channel} ကို စာရင်းထဲသို့ အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ။")
-    else:
-        await message.reply(f"⚠️ {new_channel} သည် စာရင်းထဲတွင် ရှိပြီးသား ဖြစ်ပါသည်။")
+    title = re.search(r"🎬\s*(.+)", text)
+    title = title.group(1).strip() if title else "New Movie"
 
-@app.on_message(filters.command("remove") & admin_filter)
-async def remove_channel(client, message):
-    if len(message.command) < 2:
-        return await message.reply("⚠️ ကျေးဇူးပြု၍ ဖယ်ထုတ်လိုသော Channel Username ထည့်ပါ။\nဥပမာ - `/remove @my_movie_channel`")
-    
-    remove_ch = message.command[1]
-    channels = load_channels()
-    
-    if remove_ch in channels:
-        channels.remove(remove_ch)
-        save_channels(channels)
-        await message.reply(f"🗑 {remove_ch} ကို စာရင်းမှ ဖယ်ထုတ်ပြီးပါပြီ။")
-    else:
-        await message.reply(f"⚠️ {remove_ch} သည် စာရင်းထဲတွင် မရှိပါ။")
+    prompt = f"""
+    အောက်ပါ ရုပ်ရှင်ကို ဖတ်ပြီး မြန်မာလို ဆွဲဆောင်မှုရှိတဲ့ ဇာတ်လမ်းအကျဉ်း (၃-၄ ကြောင်း) ရေးပေးပါ။ 
+    ရိုးရှင်းပြီး စိတ်ဝင်စားဖို့ ကောင်းအောင် ရေးပါ။
 
-@app.on_message(filters.command("forward_movie") & admin_filter)
-async def forward_movie(client, message):
-    if not message.reply_to_message:
-        return await message.reply("⚠️ ပေးပို့လိုသော ရုပ်ရှင် Post ကို **Reply ပြန်ပြီးမှ** `/forward_movie` ဟု ရိုက်ပါ။")
+    Title: {title}
+    Original: {text[:2000]}
+    """
 
-    channels = load_channels()
-    if not channels:
-        return await message.reply("⚠️ Channel စာရင်း အလွတ်ဖြစ်နေပါသည်။ အရင်ဆုံး `/add` ဖြင့် Channel များ ထည့်ပါ။")
+    summary = "စိတ်ဝင်စားဖို့ ကောင်းတဲ့ ရုပ်ရှင်တစ်ကားပါ။"
 
-    status_msg = await message.reply(f"🚀 Channel စုစုပေါင်း **{len(channels)}** ခုသို့ စတင် ပေးပို့နေပါပြီ...\n(ဓာတ်ပုံဖြစ်ပါက Logo အစားထိုးနေပါသည်)")
-    target_msg = message.reply_to_message
-    
-    success = 0
-    failed = 0
+    if GEMINI_API_KEY:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=15) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        summary = data['candidates'][0]['content']['parts'][0]['text'].strip()
+        except Exception as e:
+            print("Gemini Error:", e)
 
-    # ဓာတ်ပုံဖြစ်ပါက Logo ကပ်မည်
-    if target_msg.photo:
-        downloaded_file = await target_msg.download()
-        output_file = "watermarked.jpg"
-        
-        if os.path.exists("logo.png"):
-            has_logo = add_logo(downloaded_file, output_file, "logo.png")
-            file_to_send = output_file if has_logo else downloaded_file
+    final = f"🎬 **{title}**\n\n📝 **ဇာတ်လမ်းအကျဉ်း**\n{summary}\n\n"
+    if link:
+        final += f"👇 **ကြည့်ရန်**\n{link}"
+    return final
+
+def get_buttons():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📺 Main Channel", url="https://t.me/yourmainchannel")],
+        [InlineKeyboardButton("💬 Group", url="https://t.me/yourgroup")]
+    ])
+
+def is_source(_, __, message: Message):
+    if not message.chat: return False
+    username = (message.chat.username or "").replace("@", "").lower()
+    return any(s.lower().replace("@", "") == username for s in SOURCES)
+
+source_filter = filters.create(is_source)
+
+# ================= Handlers =================
+@app.on_message(filters.private & filters.command("start"))
+async def start_cmd(client, message: Message):
+    await message.reply_text("👋 **မင်္ဂလာပါ!** ရုပ်ရှင်များ အလိုအလျောက် ပို့ပေးနေပါသည်။", reply_markup=get_buttons())
+
+@app.on_message(source_filter)
+async def auto_forward(client, message: Message):
+    global current_target_index, last_media_group_id
+    if not TARGETS: return
+
+    try:
+        if message.media_group_id:
+            if message.media_group_id == last_media_group_id:
+                return
+            last_media_group_id = message.media_group_id
+        current_target_index = (current_target_index + 1) % len(TARGETS)
+        target = TARGETS[current_target_index]
+
+        new_caption = await generate_ai_summary(message.caption or message.text or "")
+
+        if message.photo:
+            photo_path = await message.download()
+            output_path = f"processed_{message.id}.jpg"
+            if replace_logo(photo_path, output_path):
+                await client.send_photo(target, output_path, caption=new_caption, reply_markup=get_buttons())
+            else:
+                await client.send_photo(target, photo_path, caption=new_caption, reply_markup=get_buttons())
+            for p in [photo_path, output_path]:
+                if os.path.exists(p): os.remove(p)
         else:
-            file_to_send = downloaded_file
+            await message.copy(target, caption=new_caption, reply_markup=get_buttons())
+    except Exception as e:
+        print(f"Error: {e}")
 
-        for channel in channels:
-            try:
-                await client.send_photo(
-                    chat_id=channel,
-                    photo=file_to_send,
-                    caption=target_msg.caption if target_msg.caption else ""
-                )
-                success += 1
-                await asyncio.sleep(2)
-            except Exception as e:
-                print(f"Error: {e}")
-                failed += 1
-                
-        if os.path.exists(downloaded_file): os.remove(downloaded_file)
-        if os.path.exists(output_file): os.remove(output_file)
-
-    # ဗီဒီယို သို့မဟုတ် စာ သီးသန့်ဖြစ်ပါက မူလအတိုင်း Forward လုပ်မည်
-    else:
-        for channel in channels:
-            try:
-                await target_msg.copy(chat_id=channel)
-                success += 1
-                await asyncio.sleep(2)
-            except Exception as e:
-                print(f"Error: {e}")
-                failed += 1
-
-    await status_msg.edit_text(f"✅ **ပေးပို့ခြင်း ပြီးဆုံးပါပြီ။**\n\nအောင်မြင်: {success} ခု\nမအောင်မြင်: {failed} ခု")
-
-# ==========================================
-# 6. Button နှိပ်လျှင် အလုပ်လုပ်မည့် စနစ် (Callback)
-# ==========================================
-@app.on_callback_query(admin_filter)
-async def button_click(client, callback_query):
-    data = callback_query.data
-    
-    if data == "list_channels":
-        channels = load_channels()
-        if not channels:
-            await callback_query.answer("⚠️ Channel စာရင်း အလွတ်ဖြစ်နေပါသည်။", show_alert=True)
-        else:
-            ch_list = "\n".join(channels)
-            await callback_query.message.reply(f"📋 **လက်ရှိ ပို့ဆောင်နေသော Channel စာရင်း:**\n\n{ch_list}")
-            await callback_query.answer()
-            
-    elif data == "add_help":
-        await callback_query.answer("Channel ထည့်ရန် စာရိုက်ပါ။", show_alert=False)
-        await callback_query.message.reply("➕ **Channel အသစ်ထည့်ရန်:**\n\nစကားပြောပေါက်တွင် `/add @channel_username` ဟု စာရိုက်၍ ပို့ပေးပါ။")
-        
-    elif data == "remove_help":
-        await callback_query.answer("Channel ဖြုတ်ရန် စာရိုက်ပါ။", show_alert=False)
-        await callback_query.message.reply("➖ **Channel ပြန်ဖြုတ်ရန်:**\n\nစကားပြောပေါက်တွင် `/remove @channel_username` ဟု စာရိုက်၍ ပို့ပေးပါ။")
-
-# ==========================================
-# 7. Bot ကို စတင် Run ခြင်း
-# ==========================================
-print("🚀 Movie Bot is starting with Inline Buttons...")
+print("🚀 Movie Auto Forward Bot Started...")
 app.run()
