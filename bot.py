@@ -7,6 +7,7 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from PIL import Image
 
 # ==========================================
@@ -93,12 +94,19 @@ def add_logo(input_image_path, output_image_path, logo_path="logo.png"):
 async def start_bot(client, message):
     text = (
         "🎬 **Movie Auto-Forward Bot မှ ကြိုဆိုပါသည်!**\n\n"
-        "အသုံးပြုနိုင်သော Commands များ -\n"
-        "➕ `/add @channel_username` : Channel အသစ်ထည့်ရန်\n"
-        "➖ `/remove @channel_username` : Channel ဖြုတ်ရန်\n"
-        "🚀 `/forward_movie` : ရုပ်ရှင်ပို့ရန် (ရုပ်ရှင် Post ကို Reply ပြန်၍ အသုံးပြုပါ)"
+        "အောက်ပါ ခလုတ်များကို နှိပ်၍ အသုံးပြုနိုင်ပါသည်။ 👇"
     )
-    await message.reply(text)
+    # ခလုတ်များ ဖန်တီးခြင်း
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📋 လက်ရှိ Channel စာရင်း ကြည့်ရန်", callback_data="list_channels")],
+            [
+                InlineKeyboardButton("➕ Channel ထည့်မည်", callback_data="add_help"),
+                InlineKeyboardButton("➖ Channel ဖြုတ်မည်", callback_data="remove_help")
+            ]
+        ]
+    )
+    await message.reply(text, reply_markup=keyboard)
 
 @app.on_message(filters.command("add") & admin_filter)
 async def add_channel(client, message):
@@ -186,7 +194,31 @@ async def forward_movie(client, message):
     await status_msg.edit_text(f"✅ **ပေးပို့ခြင်း ပြီးဆုံးပါပြီ။**\n\nအောင်မြင်: {success} ခု\nမအောင်မြင်: {failed} ခု")
 
 # ==========================================
-# 6. Bot ကို စတင် Run ခြင်း
+# 6. Button နှိပ်လျှင် အလုပ်လုပ်မည့် စနစ် (Callback)
 # ==========================================
-print("🚀 Movie Bot is starting...")
+@app.on_callback_query(admin_filter)
+async def button_click(client, callback_query):
+    data = callback_query.data
+    
+    if data == "list_channels":
+        channels = load_channels()
+        if not channels:
+            await callback_query.answer("⚠️ Channel စာရင်း အလွတ်ဖြစ်နေပါသည်။", show_alert=True)
+        else:
+            ch_list = "\n".join(channels)
+            await callback_query.message.reply(f"📋 **လက်ရှိ ပို့ဆောင်နေသော Channel စာရင်း:**\n\n{ch_list}")
+            await callback_query.answer()
+            
+    elif data == "add_help":
+        await callback_query.answer("Channel ထည့်ရန် စာရိုက်ပါ။", show_alert=False)
+        await callback_query.message.reply("➕ **Channel အသစ်ထည့်ရန်:**\n\nစကားပြောပေါက်တွင် `/add @channel_username` ဟု စာရိုက်၍ ပို့ပေးပါ။")
+        
+    elif data == "remove_help":
+        await callback_query.answer("Channel ဖြုတ်ရန် စာရိုက်ပါ။", show_alert=False)
+        await callback_query.message.reply("➖ **Channel ပြန်ဖြုတ်ရန်:**\n\nစကားပြောပေါက်တွင် `/remove @channel_username` ဟု စာရိုက်၍ ပို့ပေးပါ။")
+
+# ==========================================
+# 7. Bot ကို စတင် Run ခြင်း
+# ==========================================
+print("🚀 Movie Bot is starting with Inline Buttons...")
 app.run()
