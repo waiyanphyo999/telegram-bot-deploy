@@ -141,5 +141,15 @@ async def auto_forward(client, message: Message):
     except Exception as e:
         print(f"Error: {e}")
 
-print("🚀 Movie Auto Forward Bot Started...")
-app.run()
+# ================= Run Bot =================
+if __name__ == "__main__":
+    print("🚀 Movie Auto Forward Bot Started...")
+    try:
+        app.run()
+    except RuntimeError as e:
+        if "event loop" in str(e):
+            print("🔄 Fixing event loop issue...")
+            asyncio.set_event_loop(asyncio.new_event_loop())
+            app.run()
+        else:
+            raise
