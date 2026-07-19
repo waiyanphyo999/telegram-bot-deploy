@@ -4,7 +4,7 @@ import json
 import aiohttp
 from PIL import Image, ImageDraw
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 # ================= ⚙️ အခြေခံ အချက်အလက်များ =================
 API_ID = int(os.getenv("API_ID", "38481104"))
@@ -19,6 +19,9 @@ ADMIN_ID = os.getenv("ADMIN_ID", "waiyanphyo99")
 
 MY_LOGO_FILE = "my_logo.png"
 DB_FILE = "channels.json"
+
+# Admin တွေ ဘာလုပ်နေလဲဆိုတာ မှတ်သားရန်
+admin_steps = {}
 
 # ================= 🗂 Database (JSON) စနစ် =================
 def load_db():
@@ -102,96 +105,159 @@ async def generate_ai_summary(text):
         print(f"Request Error: {e}")
         pass
         
-    # AI Error ဖြစ်ပါက မူလစာသားထဲမှ Links များသာ ဖျက်ပေးမည်
     clean_text = re.sub(r'http[s]?://\S+', '', text)
     return re.sub(r'@\S+', '', clean_text).strip()
 
-# (၃) 🎛 ခလုတ်များ
-def get_buttons():
+# (၃) 🎛 User များမြင်ရမည့် Movie ခလုတ်များ
+def get_movie_buttons():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📺 Main Channel ကို Join ရန်", url="https://t.me/yourmainchannel")],
         [InlineKeyboardButton("💬 Group", url="https://t.me/yourgroup"), InlineKeyboardButton("📥 Download", url="https://t.me/yourdownloadlink")]
     ])
 
+# ================= 🎛 Admin Menu ခလုတ်များ =================
+def get_admin_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ Source Channel ထည့်ရန်", callback_data="add_source")],
+        [InlineKeyboardButton("➕ Target Channel ထည့်ရန်", callback_data="add_target")],
+        [InlineKeyboardButton("📊 လက်ရှိ Channels များကြည့်ရန်", callback_data="list_channels")],
+        [InlineKeyboardButton("ℹ️ Bot ဘာတွေလုပ်နိုင်လဲ?", callback_data="bot_info")]
+    ])
+
+def get_back_button():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 နောက်သို့", callback_data="back_to_main")]])
+
+
 # ================= 🤖 Handlers =================
 
-@app.on_message(filters.command("start"))
+@app.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message):
-    await message.reply_text(
-        "မင်္ဂလာပါ! ကျွန်တော်က Movie Bot ဖြစ်ပါတယ်။\n\n"
-        "Admin များအတွက် Commands များ:\n"
-        "/add_source @channel - Source channel ထည့်ရန်\n"
-        "/add_target @channel - Target channel ထည့်ရန်\n"
-        "/list - လက်ရှိ channel များကြည့်ရန်",
-        reply_markup=get_buttons()
-    )
-
-@app.on_message(filters.command("add_source") & filters.user(ADMIN_ID))
-async def add_source(client, message):
-    if len(message.command) < 2:
-        return await message.reply("Usage: /add_source @channel")
-    channel = message.command[1]
-    db = load_db()
-    if channel not in db["sources"]:
-        db["sources"].append(channel)
-        save_db(db)
-        await message.reply(f"Added {channel} to sources.")
+    if message.from_user.username == ADMIN_ID:
+        # Admin အနေနဲ့ Start ခေါ်လျှင် ခလုတ်တွေပြမည်
+        if message.chat.id in admin_steps:
+            del admin_steps[message.chat.id]
+            
+        await message.reply_text(
+            "👋 မင်္ဂလာပါ Admin!\n\nBot ကို အောက်ပါ ခလုတ်များမှ တစ်ဆင့် လွယ်ကူစွာ ထိန်းချုပ်နိုင်ပါသည်။",
+            reply_markup=get_admin_menu()
+        )
     else:
-        await message.reply("Already in sources.")
+        # သာမန် User ဆိုလျှင်
+        await message.reply_text("မင်္ဂလာပါ! ကျွန်တော်က Movie Channel များအတွက် အထူးပြုလုပ်ထားသော Bot ဖြစ်ပါသည်။")
 
-@app.on_message(filters.command("add_target") & filters.user(ADMIN_ID))
-async def add_target(client, message):
-    if len(message.command) < 2:
-        return await message.reply("Usage: /add_target @channel")
-    channel = message.command[1]
-    db = load_db()
-    if channel not in db["targets"]:
-        db["targets"].append(channel)
-        save_db(db)
-        await message.reply(f"Added {channel} to targets.")
-    else:
-        await message.reply("Already in targets.")
+# ခလုတ်နှိပ်ခြင်းများကို လက်ခံမည့် နေရာ
+@app.on_callback_query(filters.user(ADMIN_ID))
+async def button_handler(client, callback_query: CallbackQuery):
+    chat_id = callback_query.message.chat.id
+    data = callback_query.data
+    
+    if data == "add_source":
+        admin_steps[chat_id] = "waiting_for_source"
+        await callback_query.message.edit_text(
+            "📝 **Source Channel ထည့်ရန်**\n\nသင် ဇာတ်ကားများ ကူးယူလိုသော Channel ရဲ့ Username ကို ရိုက်ထည့်ပါ။\n(ဥပမာ - `@my_movies_source`)",
+            reply_markup=get_back_button()
+        )
+        
+    elif data == "add_target":
+        admin_steps[chat_id] = "waiting_for_target"
+        await callback_query.message.edit_text(
+            "📝 **Target Channel ထည့်ရန်**\n\nBot ကနေ ဇာတ်ကားတွေ အလိုအလျောက် တင်ပေးရမယ့် Channel ရဲ့ Username ကို ရိုက်ထည့်ပါ။\n(ဥပမာ - `@my_movies_target`)",
+            reply_markup=get_back_button()
+        )
+        
+    elif data == "list_channels":
+        db = load_db()
+        src_list = "\n".join([f"• {c}" for c in db['sources']]) if db['sources'] else "မရှိသေးပါ"
+        tgt_list = "\n".join([f"• {c}" for c in db['targets']]) if db['targets'] else "မရှိသေးပါ"
+        
+        text = f"📊 **လက်ရှိ ချိတ်ဆက်ထားသော Channels များ**\n\n**📥 Source (ယူမည့်နေရာများ):**\n{src_list}\n\n**📤 Target (တင်မည့်နေရာများ):**\n{tgt_list}"
+        await callback_query.message.edit_text(text, reply_markup=get_back_button())
+        
+    elif data == "bot_info":
+        info_text = (
+            "**🤖 Bot ရဲ့ လုပ်ဆောင်နိုင်စွမ်းများ**\n\n"
+            "၁။ **Auto Forward:** Source channel ကနေ Target ကို အလိုအလျောက် ပို့ပေးပါတယ်။\n"
+            "၂။ **AI Summary:** Grok AI ကိုသုံးပြီး ဇာတ်လမ်းအကျဉ်းကို မြန်မာလို အလိုအလျောက် ပြန်ရေးပေးပါတယ်။\n"
+            "၃။ **Auto Watermark:** မူလ Logo ကို ဖျက်ပြီး သင့်ရဲ့ ကိုယ်ပိုင် Logo နဲ့ အစားထိုးပေးပါတယ်။\n"
+            "၄။ **Auto Buttons:** Target ကိုပို့တဲ့အခါ 'Main Channel', 'Group', 'Download' စတဲ့ ခလုတ်တွေ အလိုအလျောက် တပ်ပေးပါတယ်။"
+        )
+        await callback_query.message.edit_text(info_text, reply_markup=get_back_button())
+        
+    elif data == "back_to_main":
+        if chat_id in admin_steps:
+            del admin_steps[chat_id]
+        await callback_query.message.edit_text(
+            "👋 မင်္ဂလာပါ Admin!\n\nBot ကို အောက်ပါ ခလုတ်များမှ တစ်ဆင့် လွယ်ကူစွာ ထိန်းချုပ်နိုင်ပါသည်။",
+            reply_markup=get_admin_menu()
+        )
 
-@app.on_message(filters.command("list") & filters.user(ADMIN_ID))
-async def list_channels(client, message):
-    db = load_db()
-    text = f"Sources: {', '.join(db['sources'])}\nTargets: {', '.join(db['targets'])}"
-    await message.reply(text)
+# Admin မှ Channel နာမည်များ ရိုက်ထည့်သောအခါ ဖမ်းယူမည့် နေရာ
+@app.on_message(filters.text & filters.user(ADMIN_ID) & filters.private)
+async def process_admin_input(client, message):
+    chat_id = message.chat.id
+    
+    if chat_id in admin_steps:
+        step = admin_steps[chat_id]
+        channel_name = message.text.strip()
+        
+        # @ နဲ့စ/မစ စစ်ဆေးခြင်း
+        if not channel_name.startswith("@"):
+            await message.reply("⚠️ ကျေးဇူးပြု၍ **@** ဖြင့်စသော Username ကိုသာ ထည့်ပါ။\n(ဥပမာ - `@channelname`)", reply_markup=get_back_button())
+            return
+            
+        db = load_db()
+        
+        if step == "waiting_for_source":
+            if channel_name not in db["sources"]:
+                db["sources"].append(channel_name)
+                save_db(db)
+                await message.reply(f"✅ **{channel_name}** ကို Source အဖြစ် အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ။", reply_markup=get_admin_menu())
+            else:
+                await message.reply("⚠️ ဤ Channel သည် Source စာရင်းထဲတွင် ရှိပြီးသားဖြစ်ပါသည်။", reply_markup=get_admin_menu())
+                
+        elif step == "waiting_for_target":
+            if channel_name not in db["targets"]:
+                db["targets"].append(channel_name)
+                save_db(db)
+                await message.reply(f"✅ **{channel_name}** ကို Target အဖြစ် အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ။", reply_markup=get_admin_menu())
+            else:
+                await message.reply("⚠️ ဤ Channel သည် Target စာရင်းထဲတွင် ရှိပြီးသားဖြစ်ပါသည်။", reply_markup=get_admin_menu())
+                
+        # အဆင့်ပြီးဆုံးသွားသဖြင့် မှတ်သားထားတာကို ဖျက်မည်
+        del admin_steps[chat_id]
 
-# Auto Forward and Process
+# ================= Auto Forward & Process လုပ်မည့်အပိုင်း =================
 @app.on_message(filters.photo)
 async def process_movie(client, message):
     db = load_db()
-    # Check if message is from source channel
+    
     if message.chat and message.chat.username:
         username = "@" + message.chat.username
+        
         if username in db["sources"]:
-            # Process AI Summary
             caption = message.caption or ""
             summary = await generate_ai_summary(caption)
             
-            # Process Logo
             photo = await message.download()
             output_photo = "output_" + photo
             replace_logo(photo, MY_LOGO_FILE, output_photo)
             
-            # Forward to all targets
             for target in db["targets"]:
                 try:
                     await client.send_photo(
                         chat_id=target,
                         photo=output_photo,
                         caption=summary,
-                        reply_markup=get_buttons()
+                        reply_markup=get_movie_buttons()
                     )
                 except Exception as e:
-                    print(f"Forward Error: {e}")
+                    print(f"Forward Error to {target}: {e}")
             
-            # Cleanup
+            # ပုံများကို ဖျက်ပစ်မည်
             if os.path.exists(photo): os.remove(photo)
             if os.path.exists(output_photo): os.remove(output_photo)
 
 # Start Bot
 if __name__ == "__main__":
-    print("Bot is starting with Grok API...")
+    print("Bot is starting with Interactive Buttons...")
     app.run()
