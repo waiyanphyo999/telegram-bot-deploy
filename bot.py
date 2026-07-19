@@ -1,6 +1,4 @@
 import asyncio
-asyncio.set_event_loop(asyncio.new_event_loop())
-
 import os
 import json
 import threading
@@ -11,7 +9,7 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from openai import OpenAI
 
 # ==========================================
-# 1. Server အတု
+# 1. Render အတွက် Web Server အတု
 # ==========================================
 class DummyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -27,7 +25,7 @@ def keep_alive():
 threading.Thread(target=keep_alive, daemon=True).start()
 
 # ==========================================
-# 2. Configuration & Setup
+# 2. Configuration & Grok Setup
 # ==========================================
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
@@ -40,7 +38,6 @@ client_xai = OpenAI(api_key=XAI_API_KEY, base_url="https://api.x.ai/v1")
 DATA_FILE = "bot_data.json"
 user_sessions = {}
 
-# Utility functions
 def load_target():
     if not os.path.exists(DATA_FILE): return None
     try:
@@ -51,90 +48,156 @@ def save_target(channel):
     with open(DATA_FILE, "w") as f: json.dump({"target_channel": channel}, f)
 
 # ==========================================
-# 3. ခလုတ်များပါသော UI
+# 3. ခလုတ်များပါသော UI (/start)
 # ==========================================
 @app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📡 Channel သတ်မှတ်ရန်", callback_data="cmd_set")],
-        [InlineKeyboardButton("🎬 ဇာတ်ကားတင်ရန်", callback_data="cmd_create")],
-        [InlineKeyboardButton("✅ ပို့စ်တင်မည် (/done)", callback_data="cmd_done")]
+        [InlineKeyboardButton("🎬 ဇာတ်ကားအသစ် စတင်ရန်", callback_data="cmd_start_post")],
+        [InlineKeyboardButton("✅ အားလုံးပို့ပြီးပါပြီ (/done)", callback_data="cmd_done")],
+        [InlineKeyboardButton("❌ ပယ်ဖျက်မည်", callback_data="cmd_cancel")]
     ])
-    await message.reply("🎬 **Grok AI Movie Bot**\n\nခလုတ်များကိုနှိပ်၍ အသုံးပြုနိုင်ပါသည်။", reply_markup=keyboard)
+    await message.reply("🎬 **Grok AI Movie Bot**\n\nအောက်ပါခလုတ်များကို အသုံးပြုပါ။", reply_markup=keyboard)
 
 @app.on_callback_query()
 async def callback_handler(client, query):
+    user_id = query.from_user.id
     if query.data == "cmd_set":
         await query.message.reply("ကျေးဇူးပြု၍ `/set_channel @channel_name` ဟု ရိုက်ပေးပါ။")
-    elif query.data == "cmd_create":
-        await query.message.reply("ကျေးဇူးပြု၍ `/create ဇာတ်ကားနာမည်` ဟု ရိုက်ပေးပါ။")
+    elif query.data == "cmd_start_post":
+        # အသစ်စတင်ရန် မှတ်ဉာဏ်ဖျက်ပြီး နေရာအသစ်ဆောက်မည်
+        user_sessions[user_id] = {"photo": None, "videos": [], "text": ""}
+        await query.message.reply("✅ **စတင်ပါပြီ။**\n\nသူများ Channel မှ ဇာတ်ကားပုံ၊ ဗီဒီယို နှင့် စာသားများကို ဤ Bot သို့ လွတ်လပ်စွာ **Forward (သို့) Copy ကူးပို့ပါ**။\n\nအကုန်ပို့ပြီးပါက အောက်ပါ **✅ အားလုံးပို့ပြီးပါပြီ** ခလုတ် သို့မဟုတ် `/done` ကိုနှိပ်ပါ။")
     elif query.data == "cmd_done":
-        await query.message.reply("ဗီဒီယိုများပို့ပြီးပါက `/done` ဟု ရိုက်ပေးပါ။")
+        await finish_and_post(client, query.message, user_id)
+    elif query.data == "cmd_cancel":
+        if user_id in user_sessions: del user_sessions[user_id]
+        await query.message.reply("❌ လုပ်ဆောင်ဆဲ ဇာတ်ကားကို ပယ်ဖျက်လိုက်ပါပြီ။")
     await query.answer()
 
-# ==========================================
-# 4. Commands လုပ်ဆောင်ချက်များ
-# ==========================================
 @app.on_message(filters.command("set_channel") & filters.private)
 async def set_channel_cmd(client, message):
     if len(message.command) < 2: return await message.reply("ဥပမာ - `/set_channel @my_movies`")
     save_target(message.command[1])
     await message.reply(f"✅ Target Channel အား {message.command[1]} သို့ သတ်မှတ်ပြီးပါပြီ။")
 
-@app.on_message(filters.command("create") & filters.private)
-async def create_post(client, message):
-    if len(message.command) < 2: return await message.reply("ဥပမာ - `/create Spider-Man`")
-    movie_name = message.text.split(" ", 1)[1]
-    user_sessions[message.from_user.id] = {"step": "photo", "movie_name": movie_name, "photo_id": None, "video_msgs": []}
-    await message.reply(f"✅ **{movie_name}** အတွက် စတင်ပါပြီ။\n📸 ဇာတ်ကားပုံ (Photo) ကို ပို့ပေးပါ။")
+@app.on_message(filters.command("cancel") & filters.private)
+async def cancel_cmd(client, message):
+    if message.from_user.id in user_sessions: del user_sessions[message.from_user.id]
+    await message.reply("❌ ပယ်ဖျက်လိုက်ပါပြီ။")
 
-@app.on_message(filters.photo & filters.private)
-async def handle_photo(client, message):
+# ==========================================
+# 4. သူများ Channel မှ Forward လုပ်သမျှကို ဖမ်းယူသိမ်းဆည်းခြင်း
+# ==========================================
+@app.on_message(filters.private & ~filters.command(["start", "set_channel", "done", "cancel"]))
+async def capture_media(client, message):
     user_id = message.from_user.id
-    if user_id in user_sessions and user_sessions[user_id]["step"] == "photo":
-        user_sessions[user_id]["photo_id"] = message.photo.file_id
-        user_sessions[user_id]["step"] = "videos"
-        await message.reply("✅ ပုံရပါပြီ။ Video များကို တစ်ခုချင်းစီပို့ပေးပါ။ အကုန်ပို့ပြီးရင် `/done` ရိုက်ပါ။")
-
-@app.on_message(filters.video & filters.private)
-async def handle_video(client, message):
-    user_id = message.from_user.id
-    if user_id in user_sessions and user_sessions[user_id]["step"] == "videos":
-        user_sessions[user_id]["video_msgs"].append(message.id)
-        await message.reply(f"✅ Video ({len(user_sessions[user_id]['video_msgs'])}) ခု ရရှိပါပြီ။")
-
-@app.on_message(filters.command("done") & filters.private)
-async def finish_and_post(client, message):
-    user_id = message.from_user.id
-    if user_id not in user_sessions: return await message.reply("⚠️ လုပ်ဆောင်ဆဲ Post မရှိပါ။ `/create` ဖြင့် အသစ်စပါ။")
-    
-    target_channel = load_target()
-    if not target_channel: return await message.reply("⚠️ Channel မသတ်မှတ်ရသေးပါ။")
+    if user_id not in user_sessions:
+        return await message.reply("⚠️ ပထမဦးစွာ **/start** ကိုနှိပ်၍ '🎬 ဇာတ်ကားအသစ် စတင်ရန်' ခလုတ်ကို အရင်နှိပ်ပါ။")
 
     session = user_sessions[user_id]
-    status_msg = await message.reply("⏳ Grok AI ဖြင့် တင်နေပါသည်...")
+
+    # ပုံဖြစ်ပါက
+    if message.photo:
+        session["photo"] = message.photo.file_id
+        if message.caption: session["text"] += f"\n{message.caption}"
+        await message.reply("✅ ပုံ လက်ခံရရှိပါပြီ။ (နောက်ထပ်ပို့ရန်ရှိပါက ဆက်ပို့ပါ)")
+        
+    # ဗီဒီယိုဖြစ်ပါက
+    elif message.video:
+        session["videos"].append(message.id)
+        if message.caption: session["text"] += f"\n{message.caption}"
+        await message.reply(f"✅ ဗီဒီယို ({len(session['videos'])}) ခု လက်ခံရရှိပါပြီ။")
+        
+    # ရိုးရိုးစာသားဖြစ်ပါက
+    elif message.text:
+        session["text"] += f"\n{message.text}"
+        await message.reply("✅ စာသား/ဇာတ်လမ်းအကျဉ်း လက်ခံရရှိပါပြီ။")
+
+# ==========================================
+# 5. အားလုံးပို့ပြီး၍ Channel သို့ Auto တင်ခြင်း
+# ==========================================
+@app.on_message(filters.command("done") & filters.private)
+async def done_cmd(client, message):
+    await finish_and_post(client, message, message.from_user.id)
+
+async def finish_and_post(client, message, user_id):
+    if user_id not in user_sessions: 
+        return await message.reply("⚠️ လုပ်ဆောင်ဆဲ Post မရှိပါ။ အသစ်စတင်ရန် ခလုတ်နှိပ်ပါ။")
+    
+    target_channel = load_target()
+    if not target_channel: 
+        return await message.reply("⚠️ Channel မသတ်မှတ်ရသေးပါ။ `/set_channel @yourchannel` အရင်လုပ်ပါ။")
+
+    session = user_sessions[user_id]
+    if not session["photo"]: 
+        return await message.reply("⚠️ ဇာတ်ကားပုံ မပါသေးပါ။ ပုံအရင်ပို့ပေးပါ။")
+    if not session["videos"]: 
+        return await message.reply("⚠️ ဗီဒီယို တစ်ခုမှ မပါသေးပါ။ ဗီဒီယိုအရင်ပို့ပေးပါ။")
+
+    status_msg = await message.reply("⏳ Grok AI ဖြင့် ဇာတ်ညွှန်းရေးဆွဲကာ Channel သို့ တင်နေပါသည်... ခဏစောင့်ပါ။")
 
     try:
+        # ၁။ ဗီဒီယိုများကို Target Channel သို့ တိုက်ရိုက် Copy ကူးပို့ပြီး Link များ ယူမည်
         video_links = []
-        for i, vid_msg_id in enumerate(session["video_msgs"]):
+        for i, vid_msg_id in enumerate(session["videos"]):
             sent_vid = await client.copy_message(chat_id=target_channel, from_chat_id=user_id, message_id=vid_msg_id)
             video_links.append(f"အပိုင်း ({i+1}) - 🔗 {sent_vid.link}")
             await asyncio.sleep(2)
 
         formatted_links = "\n".join(video_links)
-        prompt = f"Write a Telegram movie post in Burmese for '{session['movie_name']}'. Include this summary and links. Format with <blockquote> tags: {formatted_links}"
+        
+        # ၂။ Bot ဆီသို့ Forward ပို့လိုက်သော မူရင်းစာများကိုစုစည်းမည်
+        original_text = session["text"].strip()
+        if not original_text: original_text = "No details provided. Make up a generic movie post."
+
+        # ၃။ AI အား ပုံစံကျကျ ပြန်ရေးခိုင်းမည်
+        prompt = f"""
+        Based on the following forwarded movie info:
+        "{original_text}"
+        
+        Write a new, clean Telegram movie post in Burmese language.
+        Try to identify the Movie Name from the text.
+        Keep the synopsis short so it fits in a photo caption.
+        You MUST format it exactly like this using HTML tags:
+
+        <blockquote>[Movie Name or Genre] ❞</blockquote>
+        [1 or 2 catchy sentences introducing the movie in Burmese]
+
+        <blockquote>ဇာတ်လမ်းအကျဉ်း: [A short, engaging synopsis in Burmese without spoilers]</blockquote>
+
+        <blockquote>👇 အောက်က Link မှာ ဝင်ရောက်ကြည့်ရှုလိုက်ပါ 👇
+        {formatted_links}</blockquote>
+
+        📣 ရုပ်ရှင်ချစ်သူ သူငယ်ချင်းတွေကိုပါ လက်ဆင့်ကမ်း Share ပေးဖို့ မမေ့နဲ့ဦးနော်! 🚀
+
+        Do NOT include markdown like ```html. Output ONLY the raw HTML text. Make the Burmese natural and engaging.
+        """
         
         completion = client_xai.chat.completions.create(
             model="grok-beta",
-            messages=[{"role": "user", "content": prompt}]
+            messages=[
+                {"role": "system", "content": "You are a professional movie channel admin. You rewrite messy forwarded posts into clean, attractive ones."},
+                {"role": "user", "content": prompt}
+            ]
         )
         ai_caption = completion.choices[0].message.content.strip()
 
-        await client.send_photo(chat_id=target_channel, photo=session["photo_id"], caption=ai_caption, parse_mode=ParseMode.HTML)
-        del user_sessions[user_id]
-        await status_msg.edit_text("✅ အောင်မြင်စွာ တင်ပြီးပါပြီ!")
-    except Exception as e:
-        await status_msg.edit_text(f"❌ Error: {e}")
+        # ၄။ AI ရေးပေးသော Caption ဖြင့် ဇာတ်ကားပုံကို Channel သို့ တင်မည်
+        await client.send_photo(
+            chat_id=target_channel,
+            photo=session["photo"],
+            caption=ai_caption,
+            parse_mode=ParseMode.HTML
+        )
 
-print("🚀 Grok AI Movie Bot is starting...")
+        del user_sessions[user_id]
+        await status_msg.edit_text("✅ သင့် Channel သို့ အောင်မြင်စွာ တင်ပြီးပါပြီ! 🎉")
+        
+    except Exception as e:
+        await status_msg.edit_text(f"❌ အမှားအယွင်းဖြစ်ပွားခဲ့ပါသည်: {e}")
+
+# ==========================================
+print("🚀 Grok AI Forwarding Movie Bot is starting...")
 app.run()
