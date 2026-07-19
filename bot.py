@@ -260,4 +260,16 @@ async def process_movie(client, message):
 # Start Bot
 if __name__ == "__main__":
     print("Bot is starting with Interactive Buttons...")
-    app.run()
+    # အရင်က app.run() နေရာကို ဖျက်ပြီး အောက်ပါအတိုင်း ပြင်ပါ
+from pyrogram import idle
+
+async def main():
+    await app.start()
+    print("Bot is running...")
+    await idle()
+    await app.stop()
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
+
